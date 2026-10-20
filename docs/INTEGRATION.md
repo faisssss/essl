@@ -24,16 +24,17 @@ small and ports directly to any backend language.
 
 ## On-site test results
 
-*To be filled in after the test (see README, "Run the tests").*
+Tested on site on 2026-10-19 against the device above. The test server ran on a
+laptop on the same LAN.
 
-| Test | Result | Notes / return code |
+| Test | Result | Notes |
 |---|---|---|
-| A. Create user from server (`DATA UPDATE USERINFO`) | | |
-| B. Remote enrollment `ENROLL_FP` | | |
-| C. Remote enrollment `ENROLL_BIO` | | |
-| D. Punch received with correct ID | | |
-| E. Fingerprint uploaded after manual enrollment on device | | |
-| F. Delete user (`DATA DELETE USERINFO`) | | |
+| A. Create user from server (`DATA UPDATE USERINFO`) | ✅ Pass | User appeared in the device's User Mgt. |
+| B. Remote enrollment `ENROLL_FP` | ✅ Pass | Device opened its fingerprint screen by itself. The template was uploaded via OPERLOG `FP` after scanning. |
+| C. Remote enrollment `ENROLL_BIO` | Not needed | B passed. **Use `ENROLL_FP`.** |
+| D. Punch received with correct ID | ✅ Pass | |
+| E. Fingerprint uploaded after manual enrollment on device | ✅ Pass | |
+| F. Delete user (`DATA DELETE USERINFO`) | ✅ Pass | |
 
 ## What Aerowis already has
 
