@@ -66,7 +66,7 @@ class ControllerTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = Store(os.path.join(self.tmp.name, "t.db"))
         self.door = DoorController(self.store)
-        self.door.save_settings({"enabled": True, "classes": "09:00-10:00\n14:00-15:00"}, self.SN)
+        self.door.save_settings({"enabled": True, "style": "hex", "classes": "09:00-10:00\n14:00-15:00"}, self.SN)
 
     def tearDown(self):
         self.store.db.close()
@@ -132,6 +132,20 @@ class ControllerTests(unittest.TestCase):
         self.door.save_settings({"enabled": False}, self.SN)
         self.door.tick(at("09:30"))
         self.assertEqual(self.sent(), [])
+
+    def test_ac_unlock_open_and_guards(self):
+        self.door.save_settings({"enabled": False, "style": "ac_unlock"}, self.SN)
+        self.door.action("open", self.SN, seconds=5, actor="Boss")
+        self.assertEqual(self.sent(), ["AC_UNLOCK"])
+        for action in ("keep_open", "lock"):
+            with self.assertRaises(adms.ValidationError):
+                self.door.action(action, self.SN)
+        with self.assertRaises(adms.ValidationError):
+            self.door.save_settings({"enabled": True}, self.SN)  # schedule needs another mechanism
+
+    def test_old_saved_default_style_is_replaced(self):
+        self.store.set_setting("door", {"style": "hex", "sn": self.SN})  # saved by the first version
+        self.assertEqual(self.door.settings()["style"], "ac_unlock")
 
     def test_pulse_settings_validated(self):
         with self.assertRaises(adms.ValidationError):

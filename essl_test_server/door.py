@@ -32,10 +32,14 @@ DEFAULTS = {
     "max_windows": 3,
     "pulse_seconds": 120,
     "pulse_every": 60,
-    "style": "hex",
+    "style": "ac_unlock",     # the on-site test showed this device only acts on AC_UNLOCK
     "override": None,         # None | 'open' (kept open by an admin) | 'locked' (locked by an admin)
     "override_until": None,   # for 'locked': epoch seconds when the window it cut short ends
 }
+
+SCHEDULE_UNAVAILABLE = (
+    "The class schedule can't run yet on this device: it only accepts AC_UNLOCK, which opens "
+    "for its fixed Door Lock Delay. We're testing another way to hold the door open first.")
 
 TIME_RE = re.compile(r"^\s*(\d{1,2})[:.](\d{2})\s*[-–to ]+\s*(\d{1,2})[:.](\d{2})\s*$")
 
@@ -104,7 +108,10 @@ class DoorController:
 
     def settings(self):
         s = dict(DEFAULTS)
-        s.update(self.store.get_setting("door", {}))
+        saved = self.store.get_setting("door", {})
+        if not saved.get("style_chosen"):
+            saved.pop("style", None)  # older test databases saved the old default
+        s.update(saved)
         return s
 
     def save_settings(self, data, sn, actor="admin"):
@@ -118,6 +125,8 @@ class DoorController:
             "no_classes": bool(data.get("no_classes", s["no_classes"])),
             "style": data.get("style") if data.get("style") in adms.DOOR_STYLES else s["style"],
         })
+        if data.get("style") in adms.DOOR_STYLES:
+            s["style_chosen"] = True
         for key, lo, hi in (("before", 0, 180), ("after", 0, 180), ("merge_gap", 0, 600),
                             ("max_windows", 1, 10), ("pulse_seconds", 30, 250), ("pulse_every", 15, 240)):
             if key in data:
@@ -128,6 +137,8 @@ class DoorController:
                 if not lo <= v <= hi:
                     raise adms.ValidationError(f"{key} must be between {lo} and {hi}")
                 s[key] = v
+        if s["enabled"] and s["style"] == "ac_unlock":
+            raise adms.ValidationError(SCHEDULE_UNAVAILABLE)
         if s["pulse_every"] >= s["pulse_seconds"]:
             raise adms.ValidationError("Re-send interval must be shorter than the unlock time, or the door will click shut between pulses.")
         self.store.set_setting("door", s)
@@ -177,10 +188,18 @@ class DoorController:
             if not sn:
                 raise adms.ValidationError("No device has connected yet.")
             cid = None
+            if action in ("keep_open", "lock") and s["style"] == "ac_unlock":
+                raise adms.ValidationError(
+                    "This device only accepts AC_UNLOCK: it opens for its own Door Lock Delay "
+                    "and relocks by itself, so Keep open / Lock now aren't available yet.")
             if action == "open":
-                secs = int(seconds or 10)
-                cid = self._queue(sn, adms.cmd_door(secs, s["style"]))
-                self.store.add_door_event(sn, "open", f"{secs} s", actor)
+                if s["style"] == "ac_unlock":
+                    cid = self._queue(sn, "AC_UNLOCK")
+                    self.store.add_door_event(sn, "open", "for the device's Door Lock Delay", actor)
+                else:
+                    secs = int(seconds or 10)
+                    cid = self._queue(sn, adms.cmd_door(secs, s["style"]))
+                    self.store.add_door_event(sn, "open", f"{secs} s", actor)
             elif action == "keep_open":
                 cid = self._queue(sn, adms.cmd_door(adms.DOOR_KEEP_OPEN, s["style"]))
                 s["override"], s["override_until"] = "open", None
@@ -222,7 +241,7 @@ class DoorController:
         now = now or self.clock()
         with self.lock:
             s = self.settings()
-            if not s["enabled"] or not s["sn"]:
+            if not s["enabled"] or not s["sn"] or s["style"] == "ac_unlock":
                 self.was_inside = False
                 return
             inside = self._inside(s, now)

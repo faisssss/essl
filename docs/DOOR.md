@@ -27,8 +27,8 @@ It ports directly to any backend language.
 
 | Test | Result | Notes |
 |---|---|---|
-| G. Open 5 s | | |
-| H. Open 10 s (hex vs decimal) | | Working command format: |
+| G. Remote open | ✅ with `AC_UNLOCK` | `CONTROL DEVICE 010101xx` returns `Return=0` but **does nothing** on this device, so don't rely on Return=0 alone. `AC_UNLOCK` opens the door for the device's Door Lock Delay (10 s). |
+| H. Timed open (hex vs decimal) | n/a | `AC_UNLOCK` takes no duration. |
 | I. Keep open / Lock now | | |
 | J. Schedule unlock holds steadily | | |
 | K. Server stops → door relocks by itself | | |
@@ -42,9 +42,8 @@ changes at the institute.
 
 | Action | Command |
 |---|---|
-| Unlock for N seconds | `CONTROL DEVICE 010101DD`, where `DD` = N (format confirmed by test H) |
-| Keep unlocked | `CONTROL DEVICE 010101FF` |
-| Lock now | `CONTROL DEVICE 01010100` |
+| **Unlock (this device)** | **`AC_UNLOCK`**: opens for the device's Door Lock Delay, then relocks by itself. Tested and working. |
+| Unlock / keep / lock (door controller panels only) | `CONTROL DEVICE 010101DD` (`DD` = seconds, `FF` = keep, `00` = lock). The device accepts it but ignores it. |
 
 The fields in `AABBCCDD` are:
 - `AA` = 01, output

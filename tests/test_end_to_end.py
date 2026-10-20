@@ -116,7 +116,7 @@ class EndToEnd(unittest.TestCase):
         dev.handshake()
         r = self.api("door/action", {"action": "open", "seconds": 5, "actor": "Boss"})
         dev.poll_once()
-        self.assertEqual(dev.door_log, ["CONTROL DEVICE 01010105"])
+        self.assertEqual(dev.door_log, ["AC_UNLOCK"])
         cmd = next(c for c in self.api("state")["commands"] if c["id"] == r["command"])
         self.assertEqual(cmd["status"], "done")
         event = self.api("state")["door"]["events"][0]
@@ -125,7 +125,7 @@ class EndToEnd(unittest.TestCase):
     def test_door_schedule_validation(self):
         self.device().handshake()
         self.assertEqual(self.api("door/schedule", {"classes": "9 to ten"})["status"], 400)
-        ok = self.api("door/schedule", {"classes": "09:00-10:00", "enabled": True})
+        ok = self.api("door/schedule", {"classes": "09:00-10:00", "enabled": True, "style": "hex"})
         self.assertEqual(ok["windows"], [{"start": "08:45", "end": "10:15"}])
 
     def test_allowed_sn(self):

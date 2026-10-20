@@ -130,12 +130,14 @@
       <label for="door-actor">Your name (saved in the door log)</label>
       <input id="door-actor" maxlength="40" placeholder="e.g. Principal">
       <div class="row">
-        <button class="primary" data-door="open" data-seconds="5">Open 5 s</button>
-        <button data-door="open" data-seconds="10">Open 10 s</button>
-        <button data-door="keep_open">Keep open</button>
-        <button data-door="lock">Lock now</button>
-        <button data-door="resume">Resume schedule</button>
+        <button class="primary door-ac" data-door="open">Open door</button>
+        <button class="door-timed" data-door="open" data-seconds="5">Open 5 s</button>
+        <button class="door-timed" data-door="open" data-seconds="10">Open 10 s</button>
+        <button class="door-timed" data-door="keep_open">Keep open</button>
+        <button class="door-timed" data-door="lock">Lock now</button>
+        <button class="door-timed" data-door="resume">Resume schedule</button>
       </div>
+      <div id="door-msg" class="muted" style="margin-top:8px;min-height:1.2em"></div>
       <div class="error" id="door-error"></div>
 
       <div class="section">
@@ -156,7 +158,7 @@
           <select id="sch-style">
             <option value="hex">CONTROL DEVICE (hex seconds)</option>
             <option value="decimal">CONTROL DEVICE (decimal seconds)</option>
-            <option value="ac_unlock">AC_UNLOCK (open only)</option>
+            <option value="ac_unlock">AC_UNLOCK (open only; works on the door device)</option>
           </select>
           <div class="grid3">
             <div><label for="sch-pulse">Unlock pulse (s)</label><input id="sch-pulse" type="number"></div>
@@ -177,7 +179,10 @@
     </div>
     <div data-panel="punches" class="tablewrap hidden"></div>
     <div data-panel="commands" class="tablewrap hidden"></div>
-    <div data-panel="log" class="hidden" style="max-height:70vh;overflow-y:auto"></div>
+    <div data-panel="log" class="hidden" style="max-height:70vh;overflow-y:auto">
+      <details id="dev-options"><summary>Settings the device reported about itself</summary><pre class="log-body" id="dev-options-body"></pre></details>
+      <div id="log-entries"></div>
+    </div>
     <div data-panel="raw" class="hidden">
       <p class="muted">Sends any text command to the device, for experimenting. Type <code>\t</code> for a tab.
         Examples: <code>INFO</code>, <code>DATA QUERY USERINFO</code>.
@@ -214,7 +219,7 @@ async function refresh() {
   } catch (e) { $("#device-text").textContent = "Test server not responding"; }
 }
 
-let doorFormFilled = false;
+let doorFormFilled = false, lastDoorCmd = null;
 const DOOR_FIELDS = { before: "#sch-before", after: "#sch-after", merge_gap: "#sch-gap", pulse_seconds: "#sch-pulse", pulse_every: "#sch-every", max_windows: "#sch-max" };
 
 function fillDoorForm(s) {
@@ -231,6 +236,17 @@ function renderDoor(d) {
   st.className = "door-state" + (d.inside || d.settings.override === "open" ? " open" : "");
   $("#sch-windows").innerHTML = d.settings.no_classes ? `<span class="muted">None: holiday</span>`
     : d.windows.length ? d.windows.map((w) => `<span>${esc(w.start)} – ${esc(w.end)}</span>`).join("") : `<span class="muted">None</span>`;
+  const ac = d.settings.style === "ac_unlock";
+  document.querySelectorAll(".door-ac").forEach((b) => b.classList.toggle("hidden", !ac));
+  document.querySelectorAll(".door-timed").forEach((b) => b.classList.toggle("hidden", ac));
+  if (lastDoorCmd) {
+    const c = state.commands.find((x) => x.id === lastDoorCmd);
+    const msg = !c ? "" : c.status === "queued" ? "Sent ✓, waiting for the device to pick it up…"
+      : c.status === "sent" ? "Device picked it up, waiting for its answer…"
+      : c.status === "done" ? "Device confirmed ✓" + (c.text === "AC_UNLOCK" ? " (the door opens for the device's Door Lock Delay)" : "")
+      : `Device did not confirm (${c.status}${c.return_code != null ? ", code " + c.return_code : ""})`;
+    $("#door-msg").textContent = msg;
+  }
   $("#door-events").innerHTML = table(["Time", "Action", "Detail", "By"], d.events.map((e) => [
     new Date(e.t * 1000).toLocaleString(), esc(e.action), esc(e.detail), esc(e.actor),
   ]), "No door actions yet.");
@@ -265,7 +281,9 @@ function render() {
     esc(c.return_code ?? ""), clock(c.created), c.status === "queued" ? `<button class="linkbtn" data-cancel="${c.id}">Cancel</button>` : "",
   ]), "No commands sent yet.");
 
-  $('[data-panel="log"]').innerHTML = state.log.length ? state.log.map((l) =>
+  const dev2 = state.devices.find((d) => d.sn === state.sn);
+  $("#dev-options-body").textContent = (dev2 && dev2.options) || "Nothing reported yet.";
+  $("#log-entries").innerHTML = state.log.length ? state.log.map((l) =>
     `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="mono">${clock(l.t)} ${esc(l.method)} ${esc(l.path)}?${esc(l.query)}</span>
      → <span class="mono">${esc(l.status)}</span>
      ${l.body ? `<div class="log-body">${esc(l.body)}</div>` : ""}
@@ -374,7 +392,9 @@ document.addEventListener("click", async (e) => {
 document.querySelectorAll("[data-door]").forEach((b) => b.addEventListener("click", async () => {
   $("#door-error").textContent = "";
   try {
-    await api("door/action", { sn: currentSn, action: b.dataset.door, seconds: b.dataset.seconds, actor: $("#door-actor").value || "admin" });
+    const r = await api("door/action", { sn: currentSn, action: b.dataset.door, seconds: b.dataset.seconds, actor: $("#door-actor").value || "admin" });
+    lastDoorCmd = r.command;
+    $("#door-msg").textContent = r.command ? "Sent ✓, waiting for the device to pick it up…" : "Done ✓";
     refresh();
   } catch (err) { $("#door-error").textContent = err.message; }
 }));

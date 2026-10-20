@@ -111,7 +111,9 @@ class App:
             return 200, "OK"
 
         if endpoint == "registry":
-            # Newer push protocol (3.x) registers first; harmless to support.
+            # Newer push protocol (3.x) registers first and lists its capabilities.
+            if body.strip():
+                self.store.set_device_options(sn, body)
             return 200, "RegistryCode=essltest"
 
         if endpoint == "push":
