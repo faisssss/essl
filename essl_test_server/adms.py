@@ -125,6 +125,31 @@ def cmd_enroll(pin, finger, style="ENROLL_FP"):
     return f"ENROLL_FP PIN={pin}\tFID={finger}\tRETRY=3\tOVERWRITE=1"
 
 
+# Remote door control. The ZKTeco push command is CONTROL DEVICE AABBCCDD:
+#   AA=01 (output), BB=01 (door 1), CC=01 (lock relay), DD=seconds to stay unlocked,
+#   where 00 = lock now and FF (255) = stay unlocked until told otherwise.
+# Whether DD is hex or decimal varies by firmware, and some firmware uses AC_UNLOCK
+# instead, so the test app lets you pick. Test with 5 seconds first: '05' is the
+# same in both.
+DOOR_STYLES = ("hex", "decimal", "ac_unlock")
+DOOR_KEEP_OPEN = 255
+
+
+def cmd_door(seconds, style="hex"):
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        raise ValidationError("Seconds must be a number.")
+    if not 0 <= seconds <= 255:
+        raise ValidationError("Seconds must be between 0 and 255.")
+    if style == "ac_unlock":
+        if seconds == 0:
+            raise ValidationError("AC_UNLOCK cannot lock the door; use CONTROL DEVICE for that.")
+        return "AC_UNLOCK"
+    dd = f"{seconds:02d}" if style == "decimal" else f"{seconds:02X}"
+    return f"CONTROL DEVICE 010101{dd}"
+
+
 def is_enroll_command(text):
     return text.startswith("ENROLL_")
 

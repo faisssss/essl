@@ -111,6 +111,23 @@ class EndToEnd(unittest.TestCase):
         self.device().handshake()
         self.assertEqual(self.api("register", {"pin": "bad id", "name": "x"})["status"], 400)
 
+    def test_remote_door_open(self):
+        dev = self.device()
+        dev.handshake()
+        r = self.api("door/action", {"action": "open", "seconds": 5, "actor": "Boss"})
+        dev.poll_once()
+        self.assertEqual(dev.door_log, ["CONTROL DEVICE 01010105"])
+        cmd = next(c for c in self.api("state")["commands"] if c["id"] == r["command"])
+        self.assertEqual(cmd["status"], "done")
+        event = self.api("state")["door"]["events"][0]
+        self.assertEqual((event["action"], event["actor"]), ("open", "Boss"))
+
+    def test_door_schedule_validation(self):
+        self.device().handshake()
+        self.assertEqual(self.api("door/schedule", {"classes": "9 to ten"})["status"], 400)
+        ok = self.api("door/schedule", {"classes": "09:00-10:00", "enabled": True})
+        self.assertEqual(ok["windows"], [{"start": "08:45", "end": "10:15"}])
+
     def test_allowed_sn(self):
         self.app.allowed_sns = {"NFZ8250601118"}
         with self.assertRaises(urllib.error.HTTPError):

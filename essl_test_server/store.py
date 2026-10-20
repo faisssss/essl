@@ -1,5 +1,6 @@
 """SQLite storage for the test server: devices, users, command queue, punches."""
 
+import json
 import sqlite3
 import threading
 import time
@@ -43,6 +44,18 @@ CREATE TABLE IF NOT EXISTS commands (
     created REAL,
     sent REAL,
     finished REAL
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT                -- JSON
+);
+CREATE TABLE IF NOT EXISTS door_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    t REAL,
+    sn TEXT,
+    action TEXT,
+    detail TEXT,
+    actor TEXT                -- who did it: an admin's name, or 'schedule'
 );
 CREATE TABLE IF NOT EXISTS attlogs (
     sn TEXT NOT NULL,
@@ -151,6 +164,22 @@ class Store:
             (sn, limit),
         )
 
+    # ------------------------------------------------------------ settings / door log
+
+    def get_setting(self, key, default=None):
+        rows = self._all("SELECT value FROM settings WHERE key=?", (key,))
+        return json.loads(rows[0]["value"]) if rows else default
+
+    def set_setting(self, key, value):
+        self._q("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (key, json.dumps(value)))
+
+    def add_door_event(self, sn, action, detail, actor):
+        self._q("INSERT INTO door_events (t, sn, action, detail, actor) VALUES (?,?,?,?,?)",
+                (time.time(), sn, action, detail, actor))
+
+    def door_events(self, limit=30):
+        return self._all("SELECT * FROM door_events ORDER BY id DESC LIMIT ?", (limit,))
+
     # ------------------------------------------------------------ command queue
 
     def queue(self, sn, kind, text, pin=None):
@@ -217,6 +246,13 @@ class Store:
         )
         rows = self._all("SELECT * FROM commands WHERE id=? AND sn=?", (cid, sn))
         return rows[0] if rows else None
+
+    def has_pending(self, sn, kind):
+        rows = self._all(
+            "SELECT 1 FROM commands WHERE sn=? AND kind=? AND status IN ('queued','sent') LIMIT 1",
+            (sn, kind),
+        )
+        return bool(rows)
 
     def commands(self, sn, limit=50):
         return self._all(

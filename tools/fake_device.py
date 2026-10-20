@@ -20,6 +20,7 @@ class FakeDevice:
         self.reject_enroll = reject_enroll
         self.enroll_delay = enroll_delay
         self.users = {}
+        self.door_log = []
 
     def _req(self, endpoint, query="", body=None):
         url = f"{self.base}/{endpoint}?SN={self.sn}" + (f"&{query}" if query else "")
@@ -55,6 +56,9 @@ class FakeDevice:
             return 0
         if text.startswith("DATA DELETE USERINFO"):
             return 0 if self.users.pop(fields.get("PIN"), None) is not None else -1
+        if text.startswith("CONTROL DEVICE") or text == "AC_UNLOCK":
+            self.door_log.append(text)  # a real device would click the lock relay here
+            return 0
         if text.startswith("ENROLL_FP") or text.startswith("ENROLL_BIO"):
             if self.reject_enroll:
                 return -1

@@ -8,6 +8,10 @@ It talks to the device with the same cloud (ADMS) protocol Aerowis already uses
 for attendance. If the test works, the outside Aerowis team gets this code plus
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) and builds the same thing into Aerowis.
 
+It also tests **remote door control and class-based unlocking** on the face/finger
+door device. See [Door test](#door-test-facefinger-access-device) and
+[`docs/DOOR.md`](docs/DOOR.md).
+
 What it does:
 
 1. You type a User ID and name and press **Register**.
@@ -132,6 +136,54 @@ On the device: **Menu → COMM. → Cloud Server Setting → Server Address** �
 you changed it).
 
 Then do one punch and check that it shows up in Aerowis.
+
+---
+
+## Door test (face/finger access device)
+
+This tests **opening the door from the app** and **keeping it unlocked around
+classes**. It's the same routine as before, on the door device
+(`TDBD254500943`, IP `192.168.29.205`). **Do it after hours**, and have **one
+person at the door** to say what the lock does.
+
+While the device points at the laptop, face and finger still open the door as
+normal. Only the logs go to the laptop.
+
+### Set up
+
+1. Start the app with the door device's IP for the network check:
+   ```
+   python -m essl_test_server --device-ip 192.168.29.205
+   ```
+2. On the door device: **COMM → Cloud Server Settings → Server Address**.
+   - Photograph the current value first (`https://api.aerowis.com/essl/push`).
+   - Set it to the address the app prints (for example `http://192.168.29.164:8080`).
+3. Open `http://localhost:8080` and wait for `TDBD254500943 · online`.
+   - If the attendance machine also shows up, choose the door device in the dropdown at the top.
+4. Open the **Door** tab and type your name in "Your name".
+
+### Tests
+
+| # | What to do | What to check | Result |
+|---|---|---|---|
+| G | Press **Open 5 s** | Door unlocks within a few seconds, then locks again about 5 s later | |
+| H | Press **Open 10 s**. Time how long it stays unlocked. | About 10 s. (16 s or nothing means the wrong number format, see below.) | |
+| I | Press **Keep open**, wait 2 minutes, then **Lock now** | Stays unlocked the whole time, then locks | |
+| J | In **Class schedule**, type a class from *now* to *30 minutes from now* (for example `18:10-18:40`). Tick **Schedule on**, then **Save**. | Within about 10 s the door unlocks and the box says "Unlocked by schedule". Wait 3 minutes: it should **stay** unlocked, without locking and unlocking every minute. | |
+| K | While J is unlocked, **close the black window** (this simulates the internet going down) | The door **locks by itself within about 2 minutes**. Restart the app afterwards. | |
+| L | Restart the app. Tick **No classes today**, then **Save**. | Door locks, and the box says locked. Face/finger still open the door. | |
+| M | Untick **Schedule on**, then **Save** | Clean-up | |
+
+**If G does nothing:**
+1. Check the **Commands** tab for a return code.
+2. Open **Advanced** in the class schedule section, change **Door command format**
+   to *decimal*, press **Save schedule**, and try G again.
+3. Then try *AC_UNLOCK*.
+4. Write down which one worked.
+
+**After the test:** set the door device's Server Address back to
+`https://api.aerowis.com/essl/push`. Check that a face/finger scan shows up in
+Aerowis.
 
 ---
 

@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import adms
+from .door import DoorController
 from .store import Store
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -60,6 +61,7 @@ class App:
         self.delay = delay
         self.allowed_sns = set(allowed_sns or [])
         self.allow_remote_admin = allow_remote_admin
+        self.door = DoorController(store)
 
     def default_sn(self):
         devices = self.store.devices()
@@ -136,6 +138,7 @@ class App:
             "commands": self.store.commands(sn) if sn else [],
             "attlogs": self.store.attlogs(sn) if sn else [],
             "log": self.log.recent(),
+            "door": self.door.status(),
             "fingers": adms.FINGER_NAMES,
         }
 
@@ -181,6 +184,16 @@ class App:
         # Allow \t to be typed literally in the browser box.
         text = text.replace("\\t", "\t")
         return {"command": self.store.queue(sn, "raw", text)}
+
+    def api_door_action(self, data):
+        sn = data.get("sn") or self.door.settings()["sn"] or self.default_sn()
+        return {"command": self.door.action(data.get("action"), sn, data.get("seconds"),
+                                            actor=(data.get("actor") or "admin")[:40])}
+
+    def api_door_schedule(self, data):
+        self.door.save_settings(data, data.get("sn") or self.default_sn(),
+                                actor=(data.get("actor") or "admin")[:40])
+        return self.door.status()
 
     def api_cancel(self, data):
         return {"cancelled": self.store.cancel(int(data.get("id", 0)))}
@@ -291,6 +304,7 @@ def make_handler(app):
                             "register": app.api_register, "enroll": app.api_enroll,
                             "delete-user": app.api_delete_user, "raw": app.api_raw,
                             "cancel": app.api_cancel,
+                            "door/action": app.api_door_action, "door/schedule": app.api_door_schedule,
                         }.get(name)
                         if fn:
                             return self._json(200, fn(data))
@@ -370,10 +384,11 @@ def main(argv=None):
                    help="keep fingerprint templates in the database (off by default)")
     args = p.parse_args(argv)
 
-    server, _ = build_server(args.host, args.port, args.db, args.log or None, args.delay,
+    server, app = build_server(args.host, args.port, args.db, args.log or None, args.delay,
                              args.allowed_sn, args.allow_remote_admin, args.store_templates)
     print(f"eSSL test server listening on port {args.port}")
     network_check(args.device_ip, args.port)
+    app.door.run_forever()
     print(f"Open the test page:  http://localhost:{args.port}")
     print("Press Ctrl+C to stop.")
     try:

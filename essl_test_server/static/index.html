@@ -68,6 +68,14 @@
   .hidden { display: none; }
   .error { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
   .linkbtn { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; }
+  textarea { width: 100%; min-height: 110px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px;
+             background: var(--bg); color: var(--text); font: 13px/1.5 var(--mono); }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .door-state { padding: 12px 14px; border-radius: 8px; background: var(--info-bg); font-weight: 600; margin-bottom: 12px; }
+  .door-state.open { background: var(--warn-bg); color: var(--warn); }
+  .section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .windows { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .windows span { padding: 3px 9px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -109,6 +117,7 @@
   <section class="card">
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="users">Users</button>
+      <button class="tab" data-tab="door">Door</button>
       <button class="tab" data-tab="punches">Punches</button>
       <button class="tab" data-tab="commands">Commands</button>
       <button class="tab" data-tab="log">Device log</button>
@@ -116,6 +125,56 @@
     </div>
 
     <div data-panel="users" class="tablewrap"></div>
+    <div data-panel="door" class="hidden">
+      <div class="door-state" id="door-state">…</div>
+      <label for="door-actor">Your name (saved in the door log)</label>
+      <input id="door-actor" maxlength="40" placeholder="e.g. Principal">
+      <div class="row">
+        <button class="primary" data-door="open" data-seconds="5">Open 5 s</button>
+        <button data-door="open" data-seconds="10">Open 10 s</button>
+        <button data-door="keep_open">Keep open</button>
+        <button data-door="lock">Lock now</button>
+        <button data-door="resume">Resume schedule</button>
+      </div>
+      <div class="error" id="door-error"></div>
+
+      <div class="section">
+        <h2>Class schedule (today)</h2>
+        <p class="muted">Aerowis will fill this in from its calendar and timetable. For the test, type today's classes, one per line.</p>
+        <label class="check"><input type="checkbox" id="sch-enabled"> Schedule on: unlock the door around classes</label>
+        <label class="check"><input type="checkbox" id="sch-none"> No classes today (holiday): stay locked</label>
+        <label for="sch-classes">Classes</label>
+        <textarea id="sch-classes" placeholder="09:00-10:00&#10;10:15-11:15&#10;14:00-15:00"></textarea>
+        <div class="grid3">
+          <div><label for="sch-before">Unlock before (min)</label><input id="sch-before" type="number" min="0"></div>
+          <div><label for="sch-after">Lock after (min)</label><input id="sch-after" type="number" min="0"></div>
+          <div><label for="sch-gap">Join gaps up to (min)</label><input id="sch-gap" type="number" min="0"></div>
+        </div>
+        <details>
+          <summary>Advanced</summary>
+          <label for="sch-style">Door command format</label>
+          <select id="sch-style">
+            <option value="hex">CONTROL DEVICE (hex seconds)</option>
+            <option value="decimal">CONTROL DEVICE (decimal seconds)</option>
+            <option value="ac_unlock">AC_UNLOCK (open only)</option>
+          </select>
+          <div class="grid3">
+            <div><label for="sch-pulse">Unlock pulse (s)</label><input id="sch-pulse" type="number"></div>
+            <div><label for="sch-every">Re-send every (s)</label><input id="sch-every" type="number"></div>
+            <div><label for="sch-max">Max windows/day</label><input id="sch-max" type="number"></div>
+          </div>
+        </details>
+        <div class="row"><button class="primary" id="sch-save">Save schedule</button></div>
+        <div class="error" id="sch-error"></div>
+        <div class="muted" style="margin-top:10px">Door unlocked today:</div>
+        <div class="windows" id="sch-windows"></div>
+      </div>
+
+      <div class="section">
+        <h2>Door log</h2>
+        <div class="tablewrap" id="door-events"></div>
+      </div>
+    </div>
     <div data-panel="punches" class="tablewrap hidden"></div>
     <div data-panel="commands" class="tablewrap hidden"></div>
     <div data-panel="log" class="hidden" style="max-height:70vh;overflow-y:auto"></div>
@@ -155,7 +214,30 @@ async function refresh() {
   } catch (e) { $("#device-text").textContent = "Test server not responding"; }
 }
 
+let doorFormFilled = false;
+const DOOR_FIELDS = { before: "#sch-before", after: "#sch-after", merge_gap: "#sch-gap", pulse_seconds: "#sch-pulse", pulse_every: "#sch-every", max_windows: "#sch-max" };
+
+function fillDoorForm(s) {
+  $("#sch-enabled").checked = s.enabled; $("#sch-none").checked = s.no_classes;
+  $("#sch-classes").value = s.classes; $("#sch-style").value = s.style;
+  for (const [k, sel] of Object.entries(DOOR_FIELDS)) $(sel).value = s[k];
+  doorFormFilled = true;
+}
+
+function renderDoor(d) {
+  if (!doorFormFilled) fillDoorForm(d.settings);
+  const st = $("#door-state");
+  st.textContent = d.state;
+  st.className = "door-state" + (d.inside || d.settings.override === "open" ? " open" : "");
+  $("#sch-windows").innerHTML = d.settings.no_classes ? `<span class="muted">None: holiday</span>`
+    : d.windows.length ? d.windows.map((w) => `<span>${esc(w.start)} – ${esc(w.end)}</span>`).join("") : `<span class="muted">None</span>`;
+  $("#door-events").innerHTML = table(["Time", "Action", "Detail", "By"], d.events.map((e) => [
+    new Date(e.t * 1000).toLocaleString(), esc(e.action), esc(e.detail), esc(e.actor),
+  ]), "No door actions yet.");
+}
+
 function render() {
+  renderDoor(state.door);
   if (!fingersFilled) {
     $("#finger").innerHTML = Object.entries(state.fingers).map(([k, v]) => `<option value="${k}" ${k === "6" ? "selected" : ""}>${esc(v)}</option>`).join("");
     fingersFilled = true;
@@ -287,6 +369,23 @@ document.addEventListener("click", async (e) => {
     }
     refresh();
   } catch (err) { alert(err.message); }
+});
+
+document.querySelectorAll("[data-door]").forEach((b) => b.addEventListener("click", async () => {
+  $("#door-error").textContent = "";
+  try {
+    await api("door/action", { sn: currentSn, action: b.dataset.door, seconds: b.dataset.seconds, actor: $("#door-actor").value || "admin" });
+    refresh();
+  } catch (err) { $("#door-error").textContent = err.message; }
+}));
+
+$("#sch-save").addEventListener("click", async () => {
+  $("#sch-error").textContent = "";
+  const body = { sn: currentSn, enabled: $("#sch-enabled").checked, no_classes: $("#sch-none").checked,
+                 classes: $("#sch-classes").value, style: $("#sch-style").value, actor: $("#door-actor").value || "admin" };
+  for (const [k, sel] of Object.entries(DOOR_FIELDS)) body[k] = $(sel).value;
+  try { fillDoorForm((await api("door/schedule", body)).settings); refresh(); }
+  catch (err) { $("#sch-error").textContent = err.message; }
 });
 
 $("#raw-btn").addEventListener("click", async () => {
